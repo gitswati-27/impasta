@@ -1,0 +1,105 @@
+# ===================================================================== 
+# Step 1: Install Required Libraries 
+# ===================================================================== 
+!pip install langchain-google-genai langchain_core pydantic PyMuPDF 
+ 
+# ===================================================================== 
+# Step 2: Import Necessary Libraries 
+# ===================================================================== 
+import os 
+import json 
+from typing import List 
+import fitz  # PyMuPDF 
+from pydantic import BaseModel, Field 
+from langchain_core.prompts import ChatPromptTemplate 
+from langchain_core.output_parsers import JsonOutputParser 
+from langchain_google_genai import ChatGoogleGenerativeAI 
+from google.colab import userdata 
+ 
+# ===================================================================== 
+# Step 3: Initialization & Schema Definition 
+# ===================================================================== 
+os.environ["GOOGLE_API_KEY"] = userdata.get('GOOGLE_API_KEY') 
+llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0.0) 
+ 
+# Define the structural blueprint (Omitting Age/Gender for safety compliance) 
+class ResumeSchema(BaseModel): 
+    candidate_name: str = Field( 
+        description="The full name of the applicant. Default to 'UNKNOWN' " 
+                    "if missing." 
+    ) 
+    phone_number: str = Field(description="The contact phone number.") 
+    email: str = Field(description="The candidate's contact email address.") 
+    total_years_of_experience: float = Field( 
+        description="Total years of professional experience as a float, " 
+ 
+                    "consider present date as June 2026." 
+    ) 
+    list_of_skills: List[str] = Field( 
+        description="List of key technical skills, frameworks, or " 
+                    "methodologies." 
+    ) 
+    is_good_fit: bool = Field( 
+        description="True if the candidate has relevant technical skills or " 
+                    "matches professional standards and job description, " 
+                    "otherwise False." 
+    ) 
+    reason: str = Field( 
+        description="Give reasoning why the candidate is good fit or bad fit " 
+                    "based on resume and job description" 
+    ) 
+    summary: str = Field( 
+        description="A concise summary of the candidate's career history, " 
+                    "education and projects." 
+    ) 
+    highest_education: str = Field( 
+        description="The highest academic degree attained (e.g., B.Tech, " 
+                    "MS, PhD)." 
+    ) 
+ 
+# Instantiate the Json Output Parser bound to our Pydantic schema 
+output_parser = JsonOutputParser(pydantic_object=ResumeSchema) 
+ 
+# ===================================================================== 
+# Step 4: Defining the LCEL Pipeline with Partials 
+# ===================================================================== 
+screener_prompt = ChatPromptTemplate.from_messages([ 
+    ("system", "You are an advanced HR Data Extraction pipeline. Extract " 
+               "structural attributes from the raw resume text.\n\n" 
+               "{format_instructions}"), 
+    ("human", "Raw Resume Document Text:\n{resume_text}, Job Description:") 
+]) 
+ 
+# Pre-fill the static schema instructions into the prompt early 
+# This converts our 2-variable prompt into a clean 1-variable prompt 
+screener_prompt = screener_prompt.partial( 
+    format_instructions=output_parser.get_format_instructions() 
+) 
+ 
+# Assemble the streamlined chain 
+extraction_chain = screener_prompt | llm | output_parser 
+ 
+# ===================================================================== 
+# Step 5: Runtime Execution & Text Extraction 
+# ===================================================================== 
+# Take user input for the file path 
+sample_pdf_path = input("Enter the path to the resume PDF: ") 
+job_description = input("Enter the job description: ") 
+ 
+# Inline PyMuPDF extraction loop 
+raw_document_text = "" 
+with fitz.open(sample_pdf_path) as doc: 
+for page in doc: 
+raw_document_text += page.get_text() 
+print("\n--- Executing Structured Output Chain (Template Pattern) ---") 
+# Execute the chain: Thanks to .partial(), we pass dynamic text variables 
+parsed_json_dict = extraction_chain.invoke({ 
+"resume_text": raw_document_text,  
+"job_description": job_description 
+}) 
+# ===================================================================== 
+# Step 6: Output Display 
+# ===================================================================== 
+print("\n--- Verified JSON Dictionary Output ---") 
+# Print the native dictionary formatted beautifully using python's built-in tool 
+print(json.dumps(parsed_json_dict, indent=2)) 
