@@ -1,0 +1,80 @@
+!pip install langchain-google-genai langchain_core 
+ 
+# ===================================================================== 
+# Step 2: Import Necessary Libraries 
+# ===================================================================== 
+import os 
+from google.colab import userdata 
+from langchain_core.prompts import ChatPromptTemplate 
+from langchain_core.output_parsers import StrOutputParser 
+from langchain_core.runnables import RunnablePassthrough, RunnableParallel 
+from langchain_google_genai import ChatGoogleGenerativeAI 
+ 
+# ===================================================================== 
+# Step 3: Initialization & Tool Binding 
+# ===================================================================== 
+# Ensure your API key is configured 
+os.environ["GOOGLE_API_KEY"] = userdata.get('GOOGLE_API_KEY') 
+llm = ChatGoogleGenerativeAI( 
+    model="gemini-2.5-flash-lite", 
+    temperature=0.1 
+) 
+ 
+# Bind the distinct native tools to separate instances 
+llm_with_maps   = llm.bind_tools([{"google_maps": {}}]) 
+llm_with_search = llm.bind_tools([{"google_search": {}}]) 
+ 
+# ===================================================================== 
+# Step 4: Defining Independent Prompts 
+# ===================================================================== 
+# Branch A: Location Context (Maps) 
+maps_prompt = ChatPromptTemplate.from_template( 
+    "Locate the following venue and return its exact address, neighborhood, " 
+    "and operational hours and travel plan from vizag: {venue_query}" 
+ 
+) 
+ 
+# Branch B: Real-Time Situational Context (Search) 
+search_prompt = ChatPromptTemplate.from_template( 
+    "Search for recent local news, major public events, transit disruptions, " 
+    "or safety warnings happening today near: {venue_query}" 
+) 
+ 
+# Branch C: Aggregator/Evaluator 
+aggregator_prompt = ChatPromptTemplate.from_messages([ 
+    ("system", "You are an Elite Travel Concierge. Synthesize the Google Maps " 
+               "logistical data and the Google Search situational awareness " 
+               "data into a comprehensive evening briefing."), 
+    ("human", "Venue: {venue_query}\n\n[MAPS LOGISTICS]:\n{location_data}" 
+              "\n\n[SITUATIONAL NEWS & SAFETY]:\n{situational_data}") 
+]) 
+ 
+# ===================================================================== 
+# Step 5: Parallel Routing Pipeline (LCEL) 
+# ===================================================================== 
+ 
+# Create the distinct sub-chains 
+maps_chain   = maps_prompt | llm_with_maps | StrOutputParser() 
+search_chain = search_prompt | llm_with_search | StrOutputParser() 
+ 
+# Fork execution across both grounding engines simultaneously 
+parallel_grounding_engine = RunnableParallel( 
+    # Keeps input string available for the final prompt 
+    venue_query      = RunnablePassthrough(),  
+    location_data    = maps_chain, 
+    situational_data = search_chain 
+) 
+ 
+# Complete end-to-end assembly pipeline 
+travel_briefing_pipeline = ( 
+    parallel_grounding_engine | aggregator_prompt | llm | StrOutputParser() 
+) 
+ 
+# ===================================================================== 
+# Step 6: Execution 
+# ===================================================================== 
+query = input("Enter the Topic: ") 
+ 
+print("--- Executing Parallel Grounding Pipeline (Maps + Search) ---\n") 
+briefing = travel_briefing_pipeline.invoke(query) 
+print(briefing) 
