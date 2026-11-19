@@ -1,0 +1,79 @@
+# ===================================================================== 
+# Step 1: Install Required Ecosystem Libraries 
+# ===================================================================== 
+!pip install langchain-tavily langchain-groq 
+ 
+# ===================================================================== 
+# Step 2: Import Necessary Libraries 
+# ===================================================================== 
+import os 
+from langchain.agents import create_agent 
+from langchain.tools import tool 
+from langchain_tavily import TavilySearch 
+from langchain_groq import ChatGroq 
+from google.colab import userdata 
+from pprint import pprint 
+ 
+# ===================================================================== 
+# Step 3: Initialization & Credential Setup 
+# ===================================================================== 
+ 
+# Core Application Keys 
+os.environ["GROQ_API_KEY"] = userdata.get('GROQ_API_KEY') 
+os.environ["TAVILY_API_KEY"] = userdata.get('TAVILY_API_KEY') 
+ 
+# ===================================================================== 
+# Step 4: Define the Brain & the Tools 
+# ===================================================================== 
+# Define the model parameters directly 
+model = ChatGroq( 
+    model="openai/gpt-oss-120b", 
+    temperature=0.1 
+) 
+ 
+@tool 
+def get_weather(location: str) -> str: 
+    """Get weather information for a location.""" 
+    return f"Weather in {location}: Sunny, 72°F" 
+ 
+ 
+# Initialize our external search tool 
+web_search_tool = TavilySearch(max_results=2) 
+tools_list = [web_search_tool, get_weather] 
+ 
+# ===================================================================== 
+# Step 5: Build the Agent Runtime 
+# ===================================================================== 
+# Automatically manages model calling, tool routing, and loop execution. 
+system_prompt = ( 
+    "You are a helpful, precise AI assistant equipped with external tools.\n\n" 
+    "Your goal is to answer the user's requests accurately. You have access " 
+    "to tools that can fetch real-time data, search the web, or check the " 
+    "weather.\n\n" 
+    "Guidelines:\n" 
+    "1. Always evaluate if the user's request requires real-time information " 
+    "or specific knowledge you don't possess. If it does, call the " 
+    "appropriate tool.\n" 
+    "2. If the tools return information, synthesize a clear, comprehensive, " 
+    "and factual response for the user based on those results.\n" 
+    "3. Be honest about what you know and don't know. If the tools do not " 
+    "provide an answer, state that clearly.\n" 
+) 
+agent = create_agent(model, tools=tools_list, system_prompt=system_prompt) 
+ 
+# ===================================================================== 
+# Step 6: Direct Invocation Execution 
+# ===================================================================== 
+print("--- Launching Agent via Direct Invoke ---") 
+ 
+# We request recent data that forces the agent to use its search tool 
+query = input("Enter your query: ") 
+ 
+# Execute the agent workflow directly without an external wrapper 
+response = agent.invoke( 
+    {"messages": [{"role": "human", "content": f"{query}"}]} 
+) 
+ 
+print("---FINAL RESPONSE---") 
+pprint(response) 
+print(response["messages"][-1].content) 
