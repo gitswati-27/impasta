@@ -1,0 +1,61 @@
+# ===================================================================== 
+# Step 1: Install Required Libraries 
+# ===================================================================== 
+!pip install langchain-groq langchain_core 
+ 
+# ===================================================================== 
+# Step 2: Import Necessary Libraries 
+# ===================================================================== 
+import os 
+from google.colab import userdata 
+from langchain_groq import ChatGroq 
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage 
+ 
+# ===================================================================== 
+# Step 3: Secure Setup & Model Initialization 
+# ===================================================================== 
+os.environ["GROQ_API_KEY"] = userdata.get('GROQ_API_KEY') 
+llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0.1) 
+ 
+# ===================================================================== 
+# Step 4: Define the Role (System) and Dynamic User Input (Human) 
+# ===================================================================== 
+sys_msg = SystemMessage( 
+    content="Role: Expert NLP Parser. Task: Perform Part-of-Speech (POS) " 
+            "tagging. Output STRICTLY in this custom format: " 
+            "Word => [TAG] || Word => [TAG]" 
+) 
+query = HumanMessage(content=input("Enter sentence to parse: ")) 
+ 
+# ===================================================================== 
+# Step 5: Define Example Pairs for Few-Shot Prompting 
+# ===================================================================== 
+ex_h1 = HumanMessage(content="I write code.") 
+ex_a1 = AIMessage( 
+    content="I => [PRON] || write => [VERB] || code => [NOUN] || . => [PUNCT]" 
+) 
+ 
+ex_h2 = HumanMessage(content="Red birds fly fast.") 
+ex_a2 = AIMessage( 
+content="Red => [ADJ] || birds => [NOUN] || fly => [VERB] || " 
+"fast => [ADV] || . => [PUNCT]" 
+) 
+ex_h3 = HumanMessage(content="Wow, it works perfectly!") 
+ex_a3 = AIMessage( 
+content="Wow => [INTJ] || , => [PUNCT] || it => [PRON] || " 
+"works => [VERB] || perfectly => [ADV] || ! => [PUNCT]" 
+) 
+# ===================================================================== 
+# Step 6: Construct Message Arrays for Zero, One, and Few-Shot Execution 
+# ===================================================================== 
+scenarios = { 
+"v1_zero_shot": [sys_msg, query], 
+"v2_one_shot": [sys_msg, ex_h1, ex_a1, query], 
+"v3_few_shot": [sys_msg, ex_h1, ex_a1, ex_h2, ex_a2, ex_h3, ex_a3, query] 
+} 
+# ===================================================================== 
+# Step 7: Execute and Compare Outputs 
+# ===================================================================== 
+for name, messages in scenarios.items(): 
+print(f"\n--- EXECUTING {name.upper()} ---") 
+print(f"Result:\n{llm.invoke(messages).content}")  
