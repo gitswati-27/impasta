@@ -1,0 +1,91 @@
+# ===================================================================== 
+# Step 1: Install Required Ecosystem Libraries 
+# ===================================================================== 
+!pip install -qU langchain langchain-groq langchain-community 
+!pip install -qU fastmcp mcp langchain-mcp-adapters langsmith 
+ 
+# ===================================================================== 
+# Step 2: Import Necessary Libraries 
+# ===================================================================== 
+import asyncio 
+import os 
+from google.colab import userdata 
+from langchain_groq import ChatGroq 
+from langchain_mcp_adapters.client import MultiServerMCPClient 
+from langgraph.checkpoint.memory import InMemorySaver 
+from langchain.agents import create_agent 
+from langchain.agents.middleware import SummarizationMiddleware 
+ 
+# ===================================================================== 
+# Step 3: Environment Setup (Colab Secrets) 
+# ===================================================================== 
+os.environ["LANGSMITH_TRACING"] = "true" 
+os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com" 
+os.environ["LANGSMITH_API_KEY"] = userdata.get("LANGSMITH_API_KEY") 
+os.environ["LANGSMITH_PROJECT"] = "Prompt_Engineering_and_Agentic_AI_Lab" 
+os.environ["GROQ_API_KEY"] = userdata.get("GROQ_API_KEY") 
+ 
+# ===================================================================== 
+# Step 4: Asynchronous Agent Execution Core 
+# ===================================================================== 
+async def main(): 
+    # 1. Setup the LLM 
+    llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0.2) 
+ 
+ 
+    # 2. Connect to DeepWiki via Remote HTTP MCP 
+    client = MultiServerMCPClient( 
+        { 
+            "deepwiki": { 
+                "transport": "http", 
+                "url": "https://mcp.deepwiki.com/mcp", 
+            } 
+        } 
+    ) 
+ 
+    # 3. Fetch the tools exposed by the MCP server 
+    tools = await client.get_tools() 
+ 
+    # 4. Define System Prompt instructing the agent on its strict task 
+    system_prompt = ( 
+        "You are an AI assistant connected with an mcp tool called deep wiki " 
+        "which helps with understanding about any given github repo. You need " 
+        "to answer normally if it is a normal question. If it is anything " 
+        "related to a github link provided, then only use the deep wiki mcp. " 
+        "Provide a clean markdown output." 
+    ) 
+ 
+    # 5. Create the Agent utilizing LangGraph's native architecture 
+    middleware_config = [ 
+        SummarizationMiddleware(model=llm, trigger=("messages", 2)) 
+    ] 
+     
+    agent = create_agent( 
+        model=llm, 
+        tools=tools, 
+        system_prompt=system_prompt, 
+        checkpointer=InMemorySaver(), 
+        middleware=middleware_config 
+    ) 
+ 
+    # 6. Interactive User Input Loop 
+    while True: 
+        user_input = input("You: ") 
+        if user_input.strip().lower() in ["exit", "quit"]: 
+            print("Ending session. Goodbye!") 
+            break 
+ 
+        # 7. Invoke the Agent asynchronously 
+        config = {"configurable": {"thread_id": "repo_analysis_session"}} 
+        response = await agent.ainvoke( 
+            {"messages": [{"role": "user", "content": f"{user_input}"}]}, 
+            config=config 
+        ) 
+ 
+        # 8. Print the final result cleanly 
+        final_message = response["messages"][-1] 
+        print(f"Agent:\n{final_message.content}\n") 
+ 
+# Run the async loop inside Colab 
+if __name__ == "__main__":
+      await main()
