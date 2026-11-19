@@ -1,0 +1,99 @@
+# ===================================================================== 
+# Step 1: Install Required Ecosystem Libraries 
+# ===================================================================== 
+!pip install langchain-groq pandas 
+ 
+# ===================================================================== 
+# Step 2: Import Necessary Libraries 
+# ===================================================================== 
+import os 
+import sqlite3 
+import pandas as pd 
+import pathlib 
+from langchain.agents import create_agent 
+from langchain.tools import tool 
+from langchain_groq import ChatGroq 
+from google.colab import userdata 
+ 
+# ===================================================================== 
+# Step 3: Database Setup & CSV Ingestion 
+# ===================================================================== 
+csv_path = input("Enter the uploaded sample db csv path: ") 
+db_path = "local_sample.db" 
+ 
+print("Loading CSV data into a local SQLite database...") 
+# Read the uploaded CSV file using pandas 
+df = pd.read_csv(csv_path) 
+ 
+# Save dataframe into a table named 'records' 
+con = sqlite3.connect(db_path) 
+df.to_sql("records", con, if_exists="replace", index=False) 
+con.close() 
+print("Database initialized successfully. Table name is 'records'.") 
+ 
+# ===================================================================== 
+# Step 4: Initialization & Setup 
+# ===================================================================== 
+os.environ["GROQ_API_KEY"] = userdata.get('GROQ_API_KEY') 
+ 
+ 
+# Initializing our fast reasoning engine 
+model = ChatGroq(model="openai/gpt-oss-120b", temperature=0.0) 
+ 
+# ===================================================================== 
+# Step 5: Define a Single Simplified SQL Tool 
+# ===================================================================== 
+@tool 
+def execute_sql(query: str) -> str: 
+    """Executes a SQL query against the local database and returns  
+    the raw results. Use this tool to filter, count, or aggregate  
+    data from the 'records' table. Input must be a valid SQLite  
+    query string. 
+    """ 
+    connection = sqlite3.connect("local_sample.db") 
+    try: 
+        cursor = connection.cursor() 
+        cursor.execute(query) 
+        results = cursor.fetchall() 
+        return str(results) 
+    except Exception as e: 
+        return f"SQL Error: {str(e)}" 
+    finally: 
+        connection.close() 
+ 
+tools_list = [execute_sql] 
+ 
+# ===================================================================== 
+# Step 6: Context-Rich System Prompt 
+# ===================================================================== 
+system_prompt = ( 
+    "You are an expert agent designed to interact with a SQLite database.\n\n" 
+    "You have access to a single tool: `execute_sql`.\n\n" 
+    "Database Table Structure you can query:\n" 
+    "- Table name: `records`\n" 
+    "- Columns match the headers directly from your uploaded CSV.\n" 
+    "- Columns are `Student_name`, `Subjects`, `Marks`\n\n" 
+    "Guidelines:\n" 
+    "- Generate a syntactically correct SQLite query based on user prompt.\n" 
+    "- Do NOT run destructive commands (INSERT, UPDATE, DELETE).\n" 
+    "- Always query the `records` table.\n" 
+    "- Execute the query using the `execute_sql` tool, examine results, " 
+    "and provide a clear final answer.\n" 
+) 
+ 
+# Assemble our unified agent runner 
+agent = create_agent(model, tools=tools_list, system_prompt=system_prompt) 
+ 
+# ===================================================================== 
+# Step 7: Execution via Direct Invocation 
+# ===================================================================== 
+print("\n--- Launching Agent via Direct Invoke ---") 
+ 
+# Students can type any question that fits rows inside uploaded CSV 
+question = input("Enter your query: ") 
+ 
+response = agent.invoke( 
+{"messages": [{"role": "user", "content": question}]} 
+) 
+print("\n--- FINAL ANSWER ---") 
+print(response["messages"][-1].content) 
