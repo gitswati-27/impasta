@@ -1,0 +1,135 @@
+# ===================================================================== 
+# Step 1: Install Required Libraries 
+# ===================================================================== 
+!pip install langgraph langchain-google-genai langchain_core 
+ 
+# ===================================================================== 
+# Step 2: Import Necessary Libraries 
+# ===================================================================== 
+import os 
+from langchain_core.messages import HumanMessage 
+from langchain_google_genai import ChatGoogleGenerativeAI 
+from langgraph.graph import StateGraph, START, END, MessagesState 
+from langgraph.checkpoint.memory import InMemorySaver 
+from langgraph.types import interrupt, Command 
+from google.colab import userdata 
+ 
+# ===================================================================== 
+# Step 3: Initialization & Setup 
+# ===================================================================== 
+os.environ["GOOGLE_API_KEY"] = userdata.get('GOOGLE_API_KEY') 
+llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0.2) 
+ 
+# Set up the internal memory checkpointer needed for interrupts 
+checkpointer = InMemorySaver() 
+ 
+# ===================================================================== 
+# Step 4: Define the Graph Nodes 
+# ===================================================================== 
+def llm_node(state: MessagesState): 
+    """Generates or revises content based on the message history.""" 
+    response = llm.invoke(state["messages"]) 
+    return {"messages": [response]} 
+ 
+def human_node(state: MessagesState): 
+    """Displays the AI output and triggers an interrupt for feedback.""" 
+    last_ai_message = state["messages"][-1].content 
+    print(f"\n--- AI Generated Content ---\n{last_ai_message[0]['text']}" 
+          "\n----------------------------") 
+ 
+ 
+    # The interrupt pauses graph execution here and surfaces the prompt. 
+    feedback = interrupt( 
+        "Action (Type 'APPROVE' to finish, or type your revision feedback): " 
+    ) 
+     
+    # Save the human feedback as a message in the state 
+    return {"messages": [HumanMessage(content=feedback)]} 
+ 
+# ===================================================================== 
+# Step 5: Define the Conditional Routing Logic 
+# ===================================================================== 
+def router_logic(state: MessagesState): 
+    """Inspects human feedback to decide whether to exit or loop back.""" 
+    last_user_message = state["messages"][-1].content 
+ 
+    if last_user_message.strip().upper() == "APPROVE": 
+        return "accept" 
+ 
+    # If it's anything else, route back to the LLM node for revision 
+    return "revise" 
+ 
+# ===================================================================== 
+# Step 6: Assemble the Graph Layout with Checkpointer Configuration 
+# ===================================================================== 
+builder = StateGraph(MessagesState) 
+ 
+builder.add_node("llm_worker", llm_node) 
+builder.add_node("human_gate", human_node) 
+ 
+builder.add_edge(START, "llm_worker") 
+builder.add_edge("llm_worker", "human_gate") 
+ 
+# Add conditional edge to handle routing decisions 
+builder.add_conditional_edges( 
+    "human_gate", 
+    router_logic, 
+    { 
+        "accept": END, 
+        "revise": "llm_worker" 
+    } 
+) 
+ 
+# Crucial: Compile the graph with a checkpointer to save state at interrupts 
+compiled_graph = builder.compile(checkpointer=checkpointer) 
+ 
+# ===================================================================== 
+# Step 7: Runtime Execution via Single-Loop Thread Management 
+# ===================================================================== 
+print("--- Starting Human-in-the-Loop Loopback Graph ---") 
+print("Instructions: Enter a Thread ID to start or resume a session. Type 'exit' 
+to quit.") 
+ 
+while True: 
+    # 1. Select your active thread context 
+ 
+    thread_id = input("\nEnter Thread ID (e.g., user_1, user_2) or 'exit': 
+").strip() 
+     
+    if thread_id.lower() == 'exit': 
+        print("Shutting down conversational engine.") 
+        break 
+         
+    if not thread_id: 
+        continue 
+ 
+    config = {"configurable": {"thread_id": thread_id}} 
+    current_state = compiled_graph.get_state(config) 
+     
+    # 2. If the thread has an active next node and contains a pending interrupt 
+    if current_state.next and current_state.tasks and 
+getattr(current_state.tasks[0], "interrupts", None): 
+        print(f" >> Resuming active thread: '{thread_id}'") 
+        prompt_string = current_state.tasks[0].interrupts[0].value 
+        user_response = input(prompt_string).strip() 
+         
+        # Advance graph using Command 
+        compiled_graph.invoke(Command(resume=user_response), config=config) 
+         
+    # 3. If the thread is brand new or completely finished (no next node steps 
+remaining) 
+    else: 
+        print(f" >> Initializing new session for thread: '{thread_id}'") 
+        user_idea = input("Enter your idea: ").strip() 
+         
+        if not user_idea: 
+            continue 
+             
+        initial_input = {"messages": [HumanMessage(content=user_idea)]} 
+        compiled_graph.invoke(initial_input, config=config) 
+ 
+    # 4. Fetch a fresh snapshot to check metadata safely using get_state 
+    post_run_state = compiled_graph.get_state(config) 
+    if not post_run_state.next: 
+        print(f" >> Workflow for thread '{thread_id}' completed successfully via 
+APPROVE!")
