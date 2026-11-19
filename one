@@ -1,0 +1,42 @@
+!pip install langchain langchain-google-genai langchain-groq \ 
+              langchain-openai langchain-huggingface langchain-openrouter 
+
+import os 
+from google.colab import userdata 
+from langchain_core.messages import HumanMessage 
+from langchain.chat_models import init_chat_model 
+from langchain_google_genai import ChatGoogleGenerativeAI 
+from langchain_groq import ChatGroq 
+ 
+os.environ.update({ 
+    "GOOGLE_API_KEY": userdata.get('GOOGLE_API_KEY'), 
+    "GROQ_API_KEY": userdata.get('GROQ_API_KEY'), 
+    "OPENROUTER_API_KEY": userdata.get('OPENROUTER_API_KEY'), 
+    "HF_TOKEN": userdata.get('HF_TOKEN') 
+}) 
+ 
+models = { 
+    "Google": ChatGoogleGenerativeAI( 
+        model="gemini-3.1-flash-lite",  
+        temperature=1.0 
+    ), 
+    "Groq": ChatGroq( 
+        model_name="openai/gpt-oss-120b",  
+        temperature=1.0 
+    ), 
+    "OpenRouter": init_chat_model( 
+        "nvidia/nemotron-3-super-120b-a12b:free",  
+        model_provider="openrouter",  
+        temperature=1.0 
+    ), 
+    "HuggingFace": init_chat_model( 
+        "microsoft/Phi-3-mini-4k-instruct",  
+        model_provider="huggingface",  
+        temperature=1.0 
+    ) 
+} 
+msg = input("\nEnter your prompt: ") 
+for llm_name, llm in models.items(): 
+    print(f"\n--- {llm_name} ---") 
+    response = llm.invoke(msg) 
+    print(f"{response}") 
