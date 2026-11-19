@@ -1,0 +1,56 @@
+# ===================================================================== 
+# Step 1: Install Required Libraries 
+# ===================================================================== 
+!pip install langchain_google_genai langchain_core 
+ 
+# ===================================================================== 
+# Step 2: Import Necessary Libraries 
+# ===================================================================== 
+import os 
+from google.colab import userdata 
+from langchain_google_genai import ChatGoogleGenerativeAI 
+from langchain_core.prompts import PromptTemplate 
+ 
+# ===================================================================== 
+# Step 3: Secure Setup & Model Initialization 
+# ===================================================================== 
+os.environ["GOOGLE_API_KEY"] = userdata.get('GOOGLE_API_KEY') 
+llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0.3) 
+ 
+# ===================================================================== 
+# Step 4: Dynamic Input Capture for Prompt Anatomy 
+# ===================================================================== 
+print("--- Enter Prompt Anatomy Details ---") 
+data = { 
+    k: input(f"Enter {k.capitalize()}: ")  
+    for k in [ 
+        "role", "task", "topic", "context",  
+        "tone", "format", "constraints", "goal" 
+    ] 
+} 
+ 
+# ===================================================================== 
+# Step 5: Prompt Versioning Registry (Dictionary with Placeholders) 
+# ===================================================================== 
+registry = { 
+    "v1_naive": PromptTemplate.from_template( 
+        "Write about {topic}." 
+    ), 
+    "v2_intermediate": PromptTemplate.from_template( 
+        "Act as a {role}. {task} about {topic} in a {tone} tone." 
+), 
+"v3_enhanced": PromptTemplate.from_template( 
+"Role: {role}\nTask: {task} on Topic: {topic}\nContext: {context}\n" 
+"Tone: {tone}\nFormat: {format}\nConstraints: {constraints}\nGoal: {goal}" 
+) 
+} 
+# ===================================================================== 
+# Step 6: Iterative Execution & Comparison 
+# ===================================================================== 
+for ver, temp in registry.items(): 
+print(f"\n--- EXECUTING {ver.upper()} ---") 
+# Dynamically inject only the keys required by the specific template 
+formatted = temp.format( 
+{k: v for k, v in data.items() if k in temp.input_variables} 
+) 
+print(f"Result:\n{llm.invoke(formatted).content[0]["text"]}\n") 
